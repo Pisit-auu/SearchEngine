@@ -7,6 +7,7 @@ import torch
 import faiss
 import clip 
 import io
+from pathlib import Path
 
 # ตั้งค่า Path 
 BASE_PATH = r"data/train"
@@ -18,6 +19,9 @@ INDEX_FILE = "clip_image_index.faiss"
 # ตรวจสอบและเลือก (GPU/CPU)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
+# ใช้แปลง path เนื่องจาก อัพลง streamlit
+def to_posix(p: str) -> str:
+    return str(p).replace("\\", "/")
 
 @st.cache_resource  # โหลดโมเดล CLIP (Cache ไว้)
 def load_model():
@@ -34,7 +38,8 @@ model, preprocess = load_model()
 
 def load_rgb(image_source) -> Image.Image:
     try:
-        with Image.open(image_source) as im:
+        p = to_posix(image_source)
+        with Image.open(p) as im:
             im = ImageOps.exif_transpose(im)
             return im.convert("RGB")   #แปลงภาพเป็นโหมด RGB
     except Exception as e:
@@ -58,12 +63,31 @@ def get_embedding(image: Image.Image) -> np.ndarray:  #แปลงเป็น 
 #  สร้าง/โหลด ดัชนี FAISS (Cache ไว้)
 @st.cache_data
 def create_or_load_index(base_path: str):
+    base_path = str(Path(base_path).resolve())  # เป็น absolute เสมอ
+
     if os.path.exists(INDEX_FILE) and os.path.exists(EMB_FILE) and os.path.exists(FN_FILE):
         st.write(f" กำลังโหลด CLIP ")
         try:
             index = faiss.read_index(INDEX_FILE)
             embeddings = np.load(EMB_FILE)
             filenames = np.load(FN_FILE)
+
+            fixed = []
+            for f in filenames_raw:
+                f_posix = to_posix(str(f))
+                if not os.path.isabs(f_posix):
+                    if f_posix.startswith("data/train/") or f_posix.startswith("data/train\\"):
+                        rel = f_posix.split("data/train/", 1)[-1].lstrip("/\\")
+                        full = os.path.join(base_path, rel)
+                    else:
+                        full = os.path.join(base_path, f_posix)
+                else:
+                    full = f_posix
+
+                fixed.append(to_posix(full))
+
+            filenames = np.array(fixed)
+
             st.write(f" โหลดสำเร็จ (มี {index.ntotal} รูป, ขนาด {index.d},)")
             return index, embeddings, filenames
         except Exception as e:
@@ -115,9 +139,16 @@ def create_or_load_index(base_path: str):
     #  เปลี่ยนมิติเป็น 512 และใช้ IndexFlatIP
     index = faiss.IndexFlatIP(embeddings.shape[1]) # สร้างกล่องไว้เก็บเวกเตอร์ทุกภาพ
     index.add(embeddings)  # อาเวกเตอร์ของรูปทั้งหมด ใส่เข้าไปในดัชนี FAISS
+
+
+    rel_filenames = []
+    for p in filenames:  # p เป็น absolute path ที่เราใช้ตอนประมวลผล
+        rel = os.path.relpath(p, start=base_path)   # เป็น path ใต้ BASE_PATH
+        rel_filenames.append(to_posix(rel))
+
     # save embed และ fn เพื่อนำไปใช้ครั้งต่อไป
     np.save(EMB_FILE, embeddings)  
-    np.save(FN_FILE, np.array(filenames)) #เซฟรายชื่อไฟล์รูป เพื่อรู้ว่า vector นี้มาจากรูปอะไร
+    np.save(FN_FILE, np.array(rel_filenames)) #เซฟรายชื่อไฟล์รูป เพื่อรู้ว่า vector นี้มาจากรูปอะไร
     faiss.write_index(index, INDEX_FILE) #เก็บโครงสร้างภายในของ FAISS
 
     st.success(f" สร้างและบันทึก ( {index.ntotal} รูป) สำเร็จ")
