@@ -36,15 +36,15 @@ def open_image(image_source) -> Image.Image:
         im = ImageOps.exif_transpose(im)
         return im.convert("RGB")
     except Exception as e:
-        st.error(f"ไม่สามารถเปิดไฟล์รูปได้: {e}")
+        st.error(f"can't open this fike: {e}")
         return None
 
 @st.cache_resource
 def load_model():
-    st.write("กำลังโหลดโมเดล CLIP")
+    st.write("Loading CLIP model")
     model, preprocess = clip.load("ViT-B/32", device=device)
     model.eval()
-    st.write("โหลดโมเดล CLIP สำเร็จ")
+    st.write("success")
     return model, preprocess
 
 model, preprocess = load_model()
@@ -64,22 +64,22 @@ def create_or_load_index(base_path_str: str):
 
     if Path(INDEX_FILE).exists() and Path(EMB_FILE).exists() and Path(FN_FILE).exists():
         try:
-            st.write("กำลังโหลด embedding")
+            st.write("loading embedding model")
             index = faiss.read_index(INDEX_FILE)
             embeddings = np.load(EMB_FILE)
             rel_filenames = np.load(FN_FILE, allow_pickle=True)
 
             filenames = [str(to_full_path(rel, base_dir)) for rel in rel_filenames]
-            st.success(f"โหลดสำเร็จ (มี {index.ntotal} รูป, ขนาด {index.d},)")
+            st.success(f"load success (have {index.ntotal} picture, size {index.d},)")
             return index, embeddings, np.array(filenames)
         except Exception as e:
-            st.warning(f"โหลดไม่สำเร็จ: {e}")
+            st.warning(f"unsuccess: {e}")
 
     if not base_dir.exists():
-        st.error(f"ไม่พบโฟลเดอร์รูป: {base_dir}\n")
+        st.error(f"not found the picture: {base_dir}\n")
         return None, None, None
 
-    st.write(f"กำลังสร้าง index ใหม่จาก: '{base_dir}'")
+    st.write(f"creating new index from: '{base_dir}'")
     all_files = []
     for root, _, files in os.walk(base_dir):
         for fname in files:
@@ -87,11 +87,11 @@ def create_or_load_index(base_path_str: str):
                 all_files.append(str(Path(root) / fname))
 
     if not all_files:
-        st.error(f"ไม่พบไฟล์รูปภาพใน: {base_dir}")
+        st.error(f"not found the picture in : {base_dir}")
         return None, None, None
 
     embeddings_list, rel_fns = [], []
-    progress = st.progress(0, text="กำลังประมวลผลรูปภาพด้วย CLIP")
+    progress = st.progress(0, text="processing picture from CLIP")
     total = len(all_files)
 
     for i, p in enumerate(all_files):
@@ -102,21 +102,21 @@ def create_or_load_index(base_path_str: str):
                 embeddings_list.append(emb)
                 rel_fns.append(to_posix_rel(Path(p), base_dir))
         except Exception as e:
-            st.warning(f"ข้ามไฟล์เสีย: {p} ({e})")
+            st.warning(f"skip trash file: {p} ({e})")
 
-        progress.progress((i + 1) / total, text=f"ประมวลผล {i+1}/{total}")
+        progress.progress((i + 1) / total, text=f"processing {i+1}/{total}")
 
     progress.empty()
 
     if not embeddings_list:
-        st.error("ไม่สามารถสร้าง embedding ได้")
+        st.error("can't create embedding")
         return None, None, None
 
     embeddings = np.vstack(embeddings_list).astype("float32")
     faiss.normalize_L2(embeddings)  # ใช้ cosine 
 
-    st.write(f"ประมวลผลเสร็จ: {embeddings.shape[0]} รูป, ขนาด {embeddings.shape[1]}-d")
-    st.write("กำลังสร้าง FAISS")
+    st.write(f"process success: {embeddings.shape[0]} picture, size {embeddings.shape[1]},")
+    st.write("creating FAISS")
 
     index = faiss.IndexFlatIP(embeddings.shape[1])
     index.add(embeddings)
@@ -127,7 +127,7 @@ def create_or_load_index(base_path_str: str):
 
     # คืนค่า filenames เป็น full path (เพื่อแสดงภาพ)
     filenames_full = [str(to_full_path(rel, base_dir)) for rel in rel_fns]
-    st.success(f"สร้างและบันทึก index สำเร็จ (ทั้งหมด {index.ntotal} รูป)")
+    st.success(f"create and record index sucess (all {index.ntotal} picture)")
     return index, embeddings, np.array(filenames_full)
 
 
@@ -136,8 +136,8 @@ index, embeddings, filenames = create_or_load_index(str(BASE_PATH))
 if index is None:
     st.stop()
 st.title("Image Search Engine (CLIP + FAISS)")
-st.caption("อัปโหลดรูปเพื่อค้นหารูป 'สถานที่เดียวกัน'")
-st.write("มี 18 สถานที่ที่รองรับ:")
+st.caption("uploade for find picture 'same place'")
+st.write("There are 18 available locations:")
 
 st.markdown("""
 * Antarctica
@@ -160,7 +160,7 @@ st.markdown("""
 * Venezuela Angel Falls
 """)
 st.write("")
-st.write("ตัวอย่างรูปภาพ")
+st.write("Picture Example")
 
 image_paths = [
     "./data/test/2.AtractivoGrande_2352019081130.jpg",
@@ -197,17 +197,17 @@ for idx, path in enumerate(image_paths):
             st.warning(f"File not found: {path}")
 
 uploaded_file = st.file_uploader(
-    "เลือกรูปภาพที่ต้องการค้นหา",
+    "choose picture you want to find.",
     type=["jpg", "jpeg", "png", "bmp", "webp"]
 )
 
-threshold = st.slider("ตั้งค่าเกณฑ์ที่สามารถรับได้",
+threshold = st.slider("setting treshold you can accept",
                       min_value=0.10, max_value=1.00, value=0.80, step=0.01)
 
 if uploaded_file is not None:
     query_img = open_image(uploaded_file)
     if query_img:
-        st.subheader("รูปต้นฉบับ:")
+        st.subheader("picture original :")
         st.image(query_img, width=240)
 
         q = get_embedding(query_img).reshape(1, -1)
@@ -223,9 +223,9 @@ if uploaded_file is not None:
 
         results.sort(key=lambda x: x[1], reverse=True)
 
-        st.subheader(f"ผลการค้นหา (≥ {threshold*100:.0f}%): พบ {len(results)} รูป")
+        st.subheader(f"result (≥ {threshold*100:.0f}%): find {len(results)} picture")
         if not results:
-            st.warning("ไม่พบรูปที่ผ่านเกณฑ์")
+            st.warning("no found picture")
         else:
             ncols = 4
             cols = st.columns(ncols)
