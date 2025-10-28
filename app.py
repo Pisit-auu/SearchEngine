@@ -211,7 +211,7 @@ if uploaded_file is not None:
         for i, conf_score in zip(I_list, D_list):
             # ไม่เอารูปตัวเอง (ถ้าเผอิญรูป query อยู่ใน index)
             if conf_score < 0.9999 and conf_score >= threshold:
-                filtered_results.append((abs_filenames[i], conf_score * 100))
+                filtered_results.append((abs_filenames[i], float(conf_score) * 100.0))
         # เรียงลำดับจากมากไปน้อย
         filtered_results.sort(key=lambda x: x[1], reverse=True)
 
