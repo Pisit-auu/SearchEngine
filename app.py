@@ -64,7 +64,7 @@ def create_or_load_index(base_path_str: str):
 
     if Path(INDEX_FILE).exists() and Path(EMB_FILE).exists() and Path(FN_FILE).exists():
         try:
-            st.write("กำลังโหลด embedding เดิม")
+            st.write("กำลังโหลด embedding")
             index = faiss.read_index(INDEX_FILE)
             embeddings = np.load(EMB_FILE)
             rel_filenames = np.load(FN_FILE, allow_pickle=True)
@@ -130,12 +130,71 @@ def create_or_load_index(base_path_str: str):
     st.success(f"สร้างและบันทึก index สำเร็จ (ทั้งหมด {index.ntotal} รูป)")
     return index, embeddings, np.array(filenames_full)
 
-st.title("Image Search Engine (CLIP + FAISS)")
-st.caption("อัปโหลดรูปเพื่อค้นหารูปที่ 'สถานที่เดียวกัน' จากคลังภาพ")
+
 
 index, embeddings, filenames = create_or_load_index(str(BASE_PATH))
 if index is None:
     st.stop()
+st.title("Image Search Engine (CLIP + FAISS)")
+st.caption("อัปโหลดรูปเพื่อค้นหารูป 'สถานที่เดียวกัน'")
+st.write("มี 18 สถานที่ที่รองรับ:")
+
+st.markdown("""
+* Antarctica
+* Burj Khalifa - UAE
+* Chich-n Itz - Mexico
+* Christ the Redeemer Statue
+* Eiffel Tower - Paris
+* Giant-s Causeway
+* Great Wall Of China - China
+* Himalaya - India
+* Machu Pichu
+* Niagara Falls
+* Pyramids Of Giza - Egypt
+* Roman Colosseum - Rome
+* Santorini
+* Statue Of Liberty - NYC
+* Stonehenge
+* Taj Mahal - India
+* The Blue Grotto - Capri
+* Venezuela Angel Falls
+""")
+st.write("")
+st.write("ตัวอย่างรูปภาพ")
+
+image_paths = [
+    "./data/test/2.AtractivoGrande_2352019081130.jpg",
+    "./data/test/5.jpg",
+    "./data/test/9.jpg",
+    "./data/test/37.831300.jpg",
+    "./data/test/43.great-wall-of-china-facts-2.jpg",
+    "./data/test/48.american-falls1-2__medium.jpg",
+    "./data/test/50.machu-picchu-cusco.jpg",
+    "./data/test/60.01-eiffel-tower.jpg",
+    "./data/test/63.hangchendzonga-national-par.jpg",
+    "./data/test/77.jpg",
+    "./data/test/79.jpg",
+    "./data/test/90.jpg",
+    "./data/test/92.jpg",
+    "./data/test/110.jpg",
+    "./data/test/119.jpg",
+    "./data/test/171.jpg",
+    "./data/test/180.jpg",
+    "./data/test/325.jpg",
+]
+cols = st.columns(4)
+
+for idx, path in enumerate(image_paths):
+    current_col = cols[idx % 4] 
+    
+    try:
+        image = Image.open(path)
+        with current_col:
+            st.image(image, caption=os.path.basename(path))
+            
+    except FileNotFoundError:
+        with current_col:
+            st.warning(f"File not found: {path}")
 
 uploaded_file = st.file_uploader(
     "เลือกรูปภาพที่ต้องการค้นหา",
