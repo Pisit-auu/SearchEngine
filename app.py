@@ -1,16 +1,16 @@
 import streamlit as st
 import os
+from pathlib import Path
+from io import BytesIO
 import numpy as np
 from PIL import Image, ImageFile, ImageOps
-ImageFile.LOAD_TRUNCATED_IMAGES = True #กัน error ถ้าไฟล์เสีย code ไม่ล่ม
 import torch
 import faiss
-import clip 
-import io
-from pathlib import Path
+import clip
+ImageFile.LOAD_TRUNCATED_IMAGES = True #กัน error ถ้าไฟล์เสีย code ไม่ล่ม
 
 # ตั้งค่า Path 
-BASE_PATH = r"data/train"
+BASE_PATH = "data/train"
 VALID_EXT = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
 EMB_FILE = "clip_embeddings.npy"     
 FN_FILE = "clip_filenames.npy"    
@@ -20,8 +20,10 @@ INDEX_FILE = "clip_image_index.faiss"
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # ใช้แปลง path เนื่องจาก อัพลง streamlit
-def to_posix(p: str) -> str:
-    return str(p).replace("\\", "/")
+def to_posix(p) -> str:
+    if isinstance(p, (str, Path)):
+        return str(p).replace("\\", "/")
+    return p
 
 @st.cache_resource  # โหลดโมเดล CLIP (Cache ไว้)
 def load_model():
@@ -38,10 +40,20 @@ model, preprocess = load_model()
 
 def load_rgb(image_source) -> Image.Image:
     try:
-        p = to_posix(image_source)
-        with Image.open(p) as im:
-            im = ImageOps.exif_transpose(im)
-            return im.convert("RGB")   #แปลงภาพเป็นโหมด RGB
+        if isinstance(image_source, (str, Path)):
+
+            with Image.open(to_posix(image_source)) as im:
+                im = ImageOps.exif_transpose(im)
+                return im.convert("RGB")
+        else:
+            if hasattr(image_source, "seek"):
+                try:
+                    image_source.seek(0)
+                except Exception:
+                    pass
+            with Image.open(image_source) as im:
+                im = ImageOps.exif_transpose(im)
+                return im.convert("RGB")   #แปลงภาพเป็นโหมด RGB
     except Exception as e:
         st.error(f"ไม่สามารถเปิดไฟล์รูปได้: {e}")
         return None
@@ -60,52 +72,48 @@ def get_embedding(image: Image.Image) -> np.ndarray:  #แปลงเป็น 
     return image_features.squeeze(0).cpu().numpy().astype("float32")  #squeeze เพื่อให้เหลือ (512,) จาก (1,512)
     #เนื่องจาก FAISS ใช้ float32 จึงกำหนดชนิดตัวเลขให้เป็น float32 และคืนเป็น array ของ numpy 
 
-#  สร้าง/โหลด ดัชนี FAISS (Cache ไว้)
-@st.cache_data
-def create_or_load_index(base_path: str):
-    base_path = str(Path(base_path).resolve())  # เป็น absolute เสมอ
-
-    if os.path.exists(INDEX_FILE) and os.path.exists(EMB_FILE) and os.path.exists(FN_FILE):
-        st.write(f" กำลังโหลด CLIP ")
-        try:
-            index = faiss.read_index(INDEX_FILE)
-            embeddings = np.load(EMB_FILE)
-            filenames_raw = np.load(FN_FILE, allow_pickle=True)
-
-            fixed = []
-            for f in filenames_raw:
-                f_posix = to_posix(str(f))
-                if not os.path.isabs(f_posix):
-                    if f_posix.startswith("data/train/") or f_posix.startswith("data/train\\"):
-                        rel = f_posix.split("data/train/", 1)[-1].lstrip("/\\")
-                        full = os.path.join(base_path, rel)
-                    else:
-                        full = os.path.join(base_path, f_posix)
-                else:
-                    full = f_posix
-
-                fixed.append(to_posix(full))
-
-            filenames = np.array(fixed)
-
-            st.write(f" โหลดสำเร็จ (มี {index.ntotal} รูป, ขนาด {index.d},)")
-            return index, embeddings, filenames
-        except Exception as e:
-            st.warning(f" โหลดไม่สำเร็จ {e}")
-    # ถ้าไม่เจอ
-    st.write(f" กำลังสร้างCLIP ใหม่จาก '{base_path}'")
-    
-    embeddings_list, filenames = [], []
+def _list_all_images(base_path: str):
     all_files = []
-    # วนลูปหาไฟล์ภาพทั้งหมดใน data/train
+     # วนลูปหาไฟล์ภาพทั้งหมดใน data/train
     for root, _, files in os.walk(base_path):
         for fname in files:
             if fname.lower().endswith(VALID_EXT):
                 all_files.append(os.path.join(root, fname))
+    return all_files
+
+def _abs_from_rel(base_path: str, rel: str) -> str:
+    return to_posix(os.path.join(base_path, rel))
+
+#  สร้าง/โหลด ดัชนี FAISS (Cache ไว้)
+@st.cache_data(show_spinner=False)
+def create_or_load_index(base_path: str):
+    base_path = to_posix(Path(base_path).resolve())
+
+
+    if all(os.path.exists(p) for p in (INDEX_FILE, EMB_FILE, FN_FILE)):
+        try:
+            index = faiss.read_index(INDEX_FILE)
+            embeddings = np.load(EMB_FILE)
+            rel_filenames = np.load(FN_FILE, allow_pickle=True)  # เก็บเป็น relative
+            # สร้าง absolute สำหรับแสดงผล/โหลดภาพภายหลัง
+            abs_filenames = np.array([_abs_from_rel(base_path, str(r)) for r in rel_filenames])
+            st.write(f" โหลดสำเร็จ (มี {index.ntotal} รูป, ขนาด {index.d},)")
+            return index, embeddings, abs_filenames
+        except Exception as e:
+            st.warning(f"โหลดไฟล์ดัชนีไม่สำเร็จ จะสร้างใหม่: {e}")
+
+    # ถ้าไม่เจอ
+    st.write(f" กำลังสร้างCLIP ใหม่จาก '{base_path}'")
+    
+    embeddings_list, filenames = [], []
+    all_files = _list_all_images(base_path)
 
     if not all_files:
         st.error(f"ไม่พบไฟล์รูปภาพใน: {base_path}")
         return None, None, None
+    
+
+    embeddings_list, abs_filenames = [], []
 
     progress_bar = st.progress(0, text="กำลังประมวลผลรูปภาพด้วย CLIP")
     total_files = len(all_files)
@@ -113,14 +121,15 @@ def create_or_load_index(base_path: str):
     for i, path in enumerate(all_files):
         try:
             img = load_rgb(path)
-            if img:
+            if img is not None:
                 emb = get_embedding(img)
-                embeddings_list.append(emb)
-                filenames.append(path)
+                if emb is not None:
+                    embeddings_list.append(emb)
+                    abs_filenames.append(to_posix(path))
         except Exception as e:
             st.warning(f" ข้ามไฟล์เสีย: {path} ({e})")
         
-        progress_bar.progress((i + 1) / total_files, text=f"ประมวลผล: {i+1}/{total_files}")
+        progress_bar.progress(i / total, text=f"ประมวลผล: {i}/{total}")
 
     progress_bar.empty()
 
@@ -155,7 +164,8 @@ def create_or_load_index(base_path: str):
     return index, embeddings, filenames
 
 #  โหลดข้อมูล 
-index, embeddings, filenames = create_or_load_index(BASE_PATH)
+base_abs = Path(BASE_PATH).resolve()
+index, embeddings, abs_filenames = create_or_load_index(str(base_abs))
 
 
 st.title(" Image Search Engine (CLIP + FAISS)")
@@ -184,7 +194,7 @@ if uploaded_file is not None:
         st.image(query_img, width=200)
 
         # สร้าง Embedding และ Normalize
-        q_emb = get_embedding(query_img).reshape(1, -1)
+        q_emb = get_embedding(query_img).reshape(1, -1).astype("float32")
         faiss.normalize_L2(q_emb)  #ทำให้เวกเตอร์แต่ละตัวมีความยาว
 
         k = index.ntotal #จำนวนรูปทั้งหมดในฐานข้อมูล
