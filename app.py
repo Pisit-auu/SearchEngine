@@ -70,7 +70,7 @@ def create_or_load_index(base_path: str):
         try:
             index = faiss.read_index(INDEX_FILE)
             embeddings = np.load(EMB_FILE)
-            filenames = np.load(FN_FILE)
+            filenames_raw = np.load(FN_FILE, allow_pickle=True)
 
             fixed = []
             for f in filenames_raw:
