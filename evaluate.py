@@ -24,7 +24,9 @@ model.eval()
 # โหลด Index และ Filenames
 try:
     index = faiss.read_index(INDEX_FILE)
-    filenames = np.load(FN_FILE)
+    # path ในไฟล์เป็น relative กับ TRAIN_PATH แปลงเป็น absolute เพื่อเทียบกับ query ได้
+    rel_filenames = np.load(FN_FILE, allow_pickle=True)
+    filenames = [os.path.abspath(os.path.join(TRAIN_PATH, rel)) for rel in rel_filenames]
     print(f"โหลด index และไฟล์สำเร็จ (มี {index.ntotal} รูป)")
 except Exception as e:
     print(f" ไม่พบไฟล์ดัชนี ({e})")
@@ -108,7 +110,7 @@ for query_path in tqdm(query_files, desc="กำลังประเมิน�
         result_class = get_class_from_path(result_path)
         
         # กรองกรณีที่รูป จำนวนรูปที่ใช้ทดสอบ อยู่ใน train 
-        if result_path == query_path:
+        if result_path == os.path.abspath(query_path):
             continue
             
         # ถ้าคลาสของผลลัพธ์ตรงกับคลาสที่คาดหวัง = ถูกต้อง
